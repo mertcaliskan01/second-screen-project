@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Lenovo - Monitör Modu</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: black;
+      }
+      #remoteVideo {
+        width: 100vw;
+        height: 100vh;
+        object-fit: contain; /* Fits image to full screen without distortion */
+      }
+    </style>
+  </head>
+  <body>
+    <video id="remoteVideo" autoplay playsinline></video>
+
+    <script>
+      // 🚨 CHANGE THIS TO YOUR MAC IP ADDRESS
+      const MAC_IP_ADDRESS = "";
+      const PEER_SERVER_PORT = 9000;
+
+      const remoteVideoElement = document.getElementById("remoteVideo");
+      let peer = null;
+
+      function connectToStreamer() {
+        console.log("Connecting to PeerJS server...");
+
+        peer = new Peer({
+          host: MAC_IP_ADDRESS, // Server is running on Mac
+          port: PEER_SERVER_PORT,
+          path: "/myapp",
+        });
+
+        peer.on("open", (id) => {
+          console.log(`My ID: ${id}. Connecting to Mac...`);
+
+          // Start call to connect to Mac (device with streamer-mac-m1 ID)
+          const call = peer.call("streamer-mac-m1", null);
+
+          // Receive stream from Mac
+          call.on("stream", (remoteStream) => {
+            console.log("Stream received. Displaying video.");
+            remoteVideoElement.srcObject = remoteStream;
+
+            // Attempt to automatically make fullscreen
+            remoteVideoElement.addEventListener("loadedmetadata", () => {
+              // Browsers usually prevent going fullscreen without user interaction.
+              // User may need to click somewhere.
+              if (remoteVideoElement.requestFullscreen) {
+                // Try to switch to fullscreen
+              }
+            });
+          });
+
+          call.on("error", (err) => {
+            console.error("Call error:", err);
+          });
+        });
+
+        peer.on("error", (err) => {
+          console.error("PeerJS Error:", err);
+          alert(
+            `Error: Could not connect to Mac server. Check IP address (${MAC_IP_ADDRESS}).`
+          );
+        });
+      }
+
+      connectToStreamer();
+    </script>
+  </body>
+</html>

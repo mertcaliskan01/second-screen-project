@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Mac Ekran Yayınlayıcı</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+      body {
+        font-family: sans-serif;
+        text-align: center;
+        margin-top: 50px;
+      }
+      #localVideo {
+        display: none;
+      } /* You can hide your own stream */
+    </style>
+  </head>
+  <body>
+    <h1>Mac M1 - Ekran Yayınlayıcı</h1>
+    <p>
+      Yayını başlatmak için lütfen aşağıdaki düğmeye tıklayın ve ekranınızı
+      seçin.
+    </p>
+    <button id="startButton">Ekran Yayınını Başlat</button>
+    <p id="status">Bağlantı bekleniyor...</p>
+
+    <video id="localVideo" autoplay playsinline muted></video>
+
+    <script>
+      // 🚨 CHANGE THIS TO YOUR MAC IP ADDRESS
+      const MAC_IP_ADDRESS = "";
+      const PEER_SERVER_PORT = 9000;
+
+      const statusEl = document.getElementById("status");
+      const startButton = document.getElementById("startButton");
+
+      startButton.addEventListener("click", startStream);
+
+      let peer = null;
+
+      function initializePeer() {
+        statusEl.textContent = "Connecting to PeerJS server...";
+
+        peer = new Peer("streamer-mac-m1", {
+          // Fixed ID for streamer
+          host: MAC_IP_ADDRESS,
+          port: PEER_SERVER_PORT,
+          path: "/myapp",
+        });
+
+        peer.on("open", (id) => {
+          statusEl.textContent = `Ready! ID: ${id}. Waiting for Windows laptop to connect.`;
+        });
+
+        peer.on("error", (err) => {
+          console.error("PeerJS Error:", err);
+          statusEl.textContent = `Error: Could not connect to PeerJS server. Check IP and port.`;
+        });
+      }
+
+      async function startStream() {
+        startButton.disabled = true;
+        statusEl.textContent = "Requesting screen sharing permission...";
+
+        try {
+          // 1. Get screen capture stream
+          const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: false,
+          });
+          document.getElementById("localVideo").srcObject = stream;
+          statusEl.textContent =
+            "Screen captured. Waiting for Windows connection...";
+
+          // 2. Send stream when someone wants to connect
+          peer.on("call", (call) => {
+            call.answer(stream); // Send video stream as answer to the call
+            statusEl.textContent =
+              "Lenovo laptop connected and your screen is being shared!";
+          });
+        } catch (err) {
+          console.error("Screen capture error:", err);
+          statusEl.textContent = `Error: Screen could not be captured or permission denied. Please try again.`;
+          startButton.disabled = false;
+        }
+      }
+
+      initializePeer();
+    </script>
+  </body>
+</html>
