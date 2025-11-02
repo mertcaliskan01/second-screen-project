@@ -16,11 +16,33 @@
         width: 100vw;
         height: 100vh;
         object-fit: contain; /* Fits image to full screen without distortion */
+        background-color: #111; /* Dark gray to distinguish from black */
+      }
+
+      /* Debug overlay */
+      body::after {
+        content: "Waiting for video...";
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        color: white;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 10px;
+        font-family: monospace;
+        font-size: 14px;
+        border-radius: 5px;
+        pointer-events: none;
+      }
+
+      body.streaming::after {
+        content: "Streaming active";
+        background: rgba(0, 255, 0, 0.7);
+        color: black;
       }
     </style>
   </head>
   <body>
-    <video id="remoteVideo" autoplay playsinline></video>
+    <video id="remoteVideo" autoplay playsinline muted></video>
 
     <script>
       // 🚨 CHANGE THIS TO YOUR MAC IP ADDRESS
@@ -29,6 +51,153 @@
 
       const remoteVideoElement = document.getElementById("remoteVideo");
       let peer = null;
+      let retryTimeout = null;
+      let retryCount = 0;
+      const MAX_RETRIES = 10;
+
+      function attemptConnection() {
+        try {
+          // Create a dummy stream to send (PeerJS requires a MediaStream parameter)
+          // We're creating an empty stream because we only want to receive, not send
+          const canvas = document.createElement("canvas");
+          canvas.width = 1;
+          canvas.height = 1;
+          const dummyStream = canvas.captureStream();
+
+          // Start call to connect to Mac (device with streamer-mac-m1 ID)
+          const call = peer.call("streamer-mac-m1", dummyStream);
+
+          // Check if call object was created successfully
+          if (!call) {
+            throw new Error(
+              "Call object is null - streamer may not be connected"
+            );
+          }
+
+          console.log("Call initiated successfully, waiting for stream...");
+
+          // Receive stream from Mac
+          call.on("stream", (remoteStream) => {
+            console.log("Stream received. Displaying video.");
+            console.log("Stream details:", {
+              id: remoteStream.id,
+              active: remoteStream.active,
+              videoTracks: remoteStream.getVideoTracks().length,
+              audioTracks: remoteStream.getAudioTracks().length,
+            });
+
+            // Check if stream has video tracks
+            const videoTracks = remoteStream.getVideoTracks();
+            if (videoTracks.length === 0) {
+              console.error("No video tracks in stream!");
+              alert(
+                "Error: Received stream has no video tracks. Make sure streamer has started screen sharing."
+              );
+              return;
+            }
+
+            console.log("Video track details:", {
+              label: videoTracks[0].label,
+              enabled: videoTracks[0].enabled,
+              muted: videoTracks[0].muted,
+              readyState: videoTracks[0].readyState,
+            });
+
+            // Unmute the video track if it's muted
+            if (videoTracks[0].muted) {
+              console.log("Video track is muted, attempting to unmute...");
+              videoTracks[0].enabled = true;
+            }
+
+            remoteVideoElement.srcObject = remoteStream;
+            retryCount = 0; // Reset retry count on success
+
+            // Force play the video
+            remoteVideoElement.play().catch((e) => {
+              console.error("Error playing video:", e);
+            });
+
+            // Attempt to automatically make fullscreen
+            remoteVideoElement.addEventListener("loadedmetadata", () => {
+              console.log("Video metadata loaded");
+              console.log("Video dimensions:", {
+                videoWidth: remoteVideoElement.videoWidth,
+                videoHeight: remoteVideoElement.videoHeight,
+                clientWidth: remoteVideoElement.clientWidth,
+                clientHeight: remoteVideoElement.clientHeight,
+              });
+              // Browsers usually prevent going fullscreen without user interaction.
+              // User may need to click somewhere.
+              if (remoteVideoElement.requestFullscreen) {
+                // Try to switch to fullscreen
+              }
+            });
+
+            remoteVideoElement.addEventListener("loadeddata", () => {
+              console.log("Video data loaded");
+            });
+
+            remoteVideoElement.addEventListener("canplay", () => {
+              console.log("Video can play");
+            });
+
+            remoteVideoElement.addEventListener("playing", () => {
+              console.log("Video is now playing!");
+              document.body.classList.add("streaming");
+            });
+
+            remoteVideoElement.addEventListener("pause", () => {
+              console.log("Video paused");
+            });
+
+            remoteVideoElement.addEventListener("stalled", () => {
+              console.log("Video stalled");
+            });
+          });
+
+          call.on("error", (err) => {
+            console.error("Call error:", err);
+            // Retry connection if streamer is not ready
+            if (retryCount < MAX_RETRIES) {
+              console.log(
+                `Retrying connection... (${retryCount + 1}/${MAX_RETRIES})`
+              );
+              retryCount++;
+              retryTimeout = setTimeout(() => {
+                attemptConnection();
+              }, 2000); // Wait 2 seconds before retry
+            } else {
+              alert(
+                `Call error: ${
+                  err.message || err
+                }. Make sure streamer is running and screen sharing is active.`
+              );
+            }
+          });
+
+          call.on("close", () => {
+            console.log("Call closed. Retrying...");
+            if (retryCount < MAX_RETRIES) {
+              retryCount++;
+              retryTimeout = setTimeout(() => {
+                attemptConnection();
+              }, 2000);
+            }
+          });
+        } catch (err) {
+          console.error("Error creating call:", err);
+          if (retryCount < MAX_RETRIES) {
+            retryCount++;
+            retryTimeout = setTimeout(() => {
+              attemptConnection();
+            }, 2000);
+          } else {
+            alert(
+              "Error: Could not connect to streamer. Make sure streamer is running and screen sharing is active."
+            );
+          }
+        }
+      }
 
       function connectToStreamer() {
         console.log("Connecting to PeerJS server...");
@@ -41,28 +210,7 @@
 
         peer.on("open", (id) => {
           console.log(`My ID: ${id}. Connecting to Mac...`);
-
-          // Start call to connect to Mac (device with streamer-mac-m1 ID)
-          const call = peer.call("streamer-mac-m1", null);
-
-          // Receive stream from Mac
-          call.on("stream", (remoteStream) => {
-            console.log("Stream received. Displaying video.");
-            remoteVideoElement.srcObject = remoteStream;
-
-            // Attempt to automatically make fullscreen
-            remoteVideoElement.addEventListener("loadedmetadata", () => {
-              // Browsers usually prevent going fullscreen without user interaction.
-              // User may need to click somewhere.
-              if (remoteVideoElement.requestFullscreen) {
-                // Try to switch to fullscreen
-              }
-            });
-          });
-
-          call.on("error", (err) => {
-            console.error("Call error:", err);
-          });
+          attemptConnection();
         });
 
         peer.on("error", (err) => {

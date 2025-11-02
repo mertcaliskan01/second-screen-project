@@ -11,8 +11,11 @@
         margin-top: 50px;
       }
       #localVideo {
-        display: none;
-      } /* You can hide your own stream */
+        width: 400px;
+        height: auto;
+        border: 2px solid #333;
+        margin-top: 20px;
+      }
     </style>
   </head>
   <body>
@@ -37,6 +40,7 @@
       startButton.addEventListener("click", startStream);
 
       let peer = null;
+      let currentStream = null;
 
       function initializePeer() {
         statusEl.textContent = "Connecting to PeerJS server...";
@@ -50,6 +54,41 @@
 
         peer.on("open", (id) => {
           statusEl.textContent = `Ready! ID: ${id}. Waiting for Windows laptop to connect.`;
+          console.log("Peer connection established. ID:", id);
+        });
+
+        // Set up call listener immediately when peer is ready
+        peer.on("call", (call) => {
+          console.log("Incoming call received");
+          if (currentStream) {
+            console.log("Current stream details:", {
+              id: currentStream.id,
+              active: currentStream.active,
+              videoTracks: currentStream.getVideoTracks().length,
+              audioTracks: currentStream.getAudioTracks().length,
+            });
+
+            const videoTracks = currentStream.getVideoTracks();
+            if (videoTracks.length > 0) {
+              console.log("Video track:", {
+                label: videoTracks[0].label,
+                enabled: videoTracks[0].enabled,
+                muted: videoTracks[0].muted,
+                readyState: videoTracks[0].readyState,
+              });
+            }
+
+            call.answer(currentStream); // Send video stream as answer to the call
+            statusEl.textContent =
+              "Viewer connected and your screen is being shared!";
+            console.log("Answering call with stream");
+          } else {
+            console.warn(
+              "Call received but no stream available. Please start screen sharing first."
+            );
+            statusEl.textContent =
+              "Call received but screen sharing not started. Click 'Start' button first.";
+          }
         });
 
         peer.on("error", (err) => {
@@ -68,16 +107,18 @@
             video: true,
             audio: false,
           });
+          currentStream = stream;
           document.getElementById("localVideo").srcObject = stream;
           statusEl.textContent =
-            "Screen captured. Waiting for Windows connection...";
+            "Screen captured. Ready to share! Waiting for viewer connection...";
+          console.log("Screen stream captured successfully");
 
-          // 2. Send stream when someone wants to connect
-          peer.on("call", (call) => {
-            call.answer(stream); // Send video stream as answer to the call
-            statusEl.textContent =
-              "Lenovo laptop connected and your screen is being shared!";
-          });
+          // Handle stream end (user stops sharing)
+          stream.getVideoTracks()[0].onended = () => {
+            statusEl.textContent = "Screen sharing stopped.";
+            currentStream = null;
+            startButton.disabled = false;
+          };
         } catch (err) {
           console.error("Screen capture error:", err);
           statusEl.textContent = `Error: Screen could not be captured or permission denied. Please try again.`;
